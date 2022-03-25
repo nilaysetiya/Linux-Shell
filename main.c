@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
+#include <ctype.h>
 
 void print_prompt() {
     printf("# ");
@@ -15,12 +16,12 @@ char *get_input() {
 
     getline (&line, &buff_size, stdin);
 
+    // Replace new line character with null terminator
     if (line[strlen(line)-1] == '\n') {
         line[strlen(line)-1] = '\0';
     }
 
     return line;
-
 }
 
 char **parse_input(char *line) {
@@ -50,6 +51,16 @@ char **parse_input(char *line) {
 
 }
 
+int cd_command(char **args) {
+    
+    if (args[1] == NULL) {
+        printf("Expected argument after cd\n");
+    } else {
+        chdir(args[1]);
+    }
+    return 1;
+}
+
 int execute(char **args) {
     pid_t pid, wpid;
     int status;
@@ -58,9 +69,8 @@ int execute(char **args) {
     if (pid == 0) {
         // We are in child process
         if (execvp(args[0], args) == -1) {
-            printf("Didn't run correctly");
+            printf("Didn't run correctly\n");
         }
-
     } else if (pid < 0) {
         printf("Fork error");
     } else {
@@ -86,7 +96,15 @@ int main(int argc, char **argv)
 
         line = get_input();
         args = parse_input(line);
-        status = execute(args);
+
+        if (!strcmp(args[0], "cd")) {
+            printf("Running cd command\n");
+            status = cd_command(args);
+        } else if (!strcmp(tolower(args[0]), "exit")) {
+            exit(0);
+        } else {
+            status  = execute(args);
+        }
 
         free(line);
         free(args);        
