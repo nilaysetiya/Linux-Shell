@@ -11,8 +11,6 @@
 
 #define HIST_MAX 10
 
-static int hist_command_number = 0;
-
 void print_prompt() {
     printf("> ");
 }
@@ -28,7 +26,7 @@ char *get_input() {
     if (line[strlen(line)-1] == '\n') {
         line[strlen(line)-1] = '\0';
     }
-
+    
     return line;
 }
 
@@ -46,7 +44,7 @@ char **parse_input(char *line) {
         fprintf(stderr, "Allocation error");
     }
 
-    token = strtok(line, " \t");
+    token = strtok(strdup(line), " \t");
     tokens[index] = token;
     index++;
 
@@ -83,9 +81,19 @@ void help_command() {
     
 }
 
-void history_handler(char **args) {
+int history_handler(char **hist, int max_index, char **args) {
     
-    
+    if (args[1] == NULL) {
+        // print out history
+        for (int i = 0; i < max_index; i++) {
+            printf("%d: %s\n", i + 1, hist[i]);
+        }
+
+        return 0;
+    } else {
+
+        return 1;  
+    } 
 }
 
 int execute_standard(char **args) {
@@ -117,6 +125,9 @@ int main(int argc, char **argv) {
     char **args;
     int status = 0;
 
+    int hist_index = 0;
+    char **hist = malloc(100 * sizeof(char*)); 
+
     // Get current directory
     char cwd[PATH_MAX];
     getcwd(cwd, sizeof(cwd));
@@ -130,26 +141,50 @@ int main(int argc, char **argv) {
         print_prompt();
 
         line = get_input();
+
+        hist[hist_index] = line;
+        hist_index++;
+
         args = parse_input(line);
 
         if (!strcmp(args[0], "cd")) {
             status = cd_command(args, cwd);
 
         } else if (!strcmp(args[0], "exit")) {
-            exit(0);
+            break;
 
         } else if (!strcmp(args[0], "help")) {
             help_command();
 
         } else if (!strcmp(args[0], "history") || !strcmp(args[0], "h")) {
-            
+            if (history_handler(hist, hist_index, args)) {
+                char *hist_line;
+                char **hist_args;
+
+                hist_line = hist[atoi(args[1])-1];
+                hist_args = parse_input(hist_line);
+
+                if (!strcmp(hist_args[0], "cd")) {
+                    status = cd_command(hist_args, cwd);
+
+                } else if (!strcmp(hist_args[0], "exit")) {
+                    exit(0);
+
+                } else if (!strcmp(hist_args[0], "help")) {
+                    help_command();
+
+                } else {
+                    status = execute_standard(hist_args);
+                }
+
+            }
+
         } else {
             status  = execute_standard(args);
         }
 
-        free(line);
         free(args);        
-
     }
-  return EXIT_SUCCESS;
+
+    return EXIT_SUCCESS;
 }
