@@ -9,7 +9,18 @@
 #include <limits.h>
 #include <malloc.h>
 
+
 #define HIST_MAX 10
+
+struct Job {
+    int number;
+    pid_t id;
+    char *status;
+    char *cmd_line;
+};
+
+struct Job jobs[100];
+int job_index = 1;
 
 void print_prompt() {
     printf("> ");
@@ -47,14 +58,27 @@ char **parse_input(char *line) {
     token = strtok(strdup(line), " \t");
     tokens[index] = token;
     index++;
-
+    bool amp = false;
     while (token != NULL) {
         token = strtok(NULL, " \t");
         tokens[index] = token;
         index++;
     }
 
+    int i = 0;
+    while(tokens[i] != NULL) {
+        if (!strcmp(tokens[i], "&")) {
+            amp = true;
+        }
+        i++;
+    }
+
+    if (amp) {
+        tokens[i-1] = NULL;
+    }
+
     tokens[index] = NULL;
+    
     return tokens;
 
 }
@@ -128,81 +152,36 @@ char ***init_pipe_cmd(char *line) {
 
 int execute_pipe(char ***cmd) {
     
-    int fd[2];
+    int fildes[2];
 	pid_t pid;
-	int fdd = 0;				/* Backup */
+	int fdd = 0;				
 
+    // while loop to iterate through all commands
 	while (*cmd != NULL) {
-		pipe(fd);				/* Sharing bidiflow */
+
+        // create pipe and process
+		pipe(fildes);				
 		if ((pid = fork()) == -1) {
 			perror("fork");
 			exit(1);
 		}
 		else if (pid == 0) {
+            // Child process
 			dup2(fdd, 0);
 			if (*(cmd + 1) != NULL) {
-				dup2(fd[1], 1);
+				dup2(fildes[1], 1);
 			}
-			close(fd[0]);
+			close(fildes[0]);
 			execvp((*cmd)[0], *cmd);
 			exit(1);
 		}
 		else {
-			wait(NULL); 		/* Collect childs */
-			close(fd[1]);
-			fdd = fd[0];
+			wait(NULL); 		
+			close(fildes[1]);
+			fdd = fildes[0];
 			cmd++;
 		}
 	}
-
-    
-    // char **firstargs = malloc(100 * sizeof(char*));
-    // char **secondargs = malloc(100 * sizeof(char*));
-    // char *input = strdup(line);
-    // char *token1 = strtok(input, "|");
-    // char *token2 = strtok(NULL, "|");
-
-    // firstargs = parse_input(token1);
-    // secondargs = parse_input(token2);
-
-    // int fd[2];
-
-    // if (pipe(fd) == -1) {
-    //     printf("Couldn't create pipe\n");
-    //     exit(1);
-    // }
-
-    // int pid1 = fork();
-    // if (pid1 < 0) {
-    //     printf("Fork error\n");
-    // }
-
-    // if (pid1 == 0) {
-    //     // child process
-    //     dup2(fd[1], STDOUT_FILENO);
-    //     close(fd[0]);
-    //     close(fd[1]);
-    //     execvp(firstargs[0], firstargs);
-    // } 
-
-    // int pid2 = fork();
-    // if (pid2 < 0) {
-    //     printf("Fork error\n");
-    // }
-
-    // if (pid2 == 0) {
-    //     // child process
-    //     dup2(fd[0], STDIN_FILENO);
-    //     close(fd[0]);
-    //     close(fd[1]);
-    //     execvp(secondargs[0], secondargs);
-    // }
-
-    // close(fd[0]);
-    // close(fd[1]);
-
-    // waitpid(pid1, NULL, 0);
-    // waitpid(pid2, NULL, 0);
 
 }
 
@@ -216,6 +195,7 @@ int execute_standard(char **args) {
         // We are in child process
         if (execvp(args[0], args) == -1) {
             printf("Didn't run correctly\n");
+            exit(1);
         }
     } else if (pid < 0) {
         // Error forking
@@ -223,9 +203,76 @@ int execute_standard(char **args) {
     } else {
         // Wait for parent process
         wpid = waitpid(pid, NULL, 0);
+        
     }
 
     return 1;
+}
+
+pid_t execute_background(char **args, char *line) {
+    pid_t pid;
+    int status;
+
+    // Create child process and execute
+    pid = fork();
+    jobs[job_index].id = pid;
+    jobs[job_index].cmd_line = strdup(line);
+    job_index++;
+    if (pid == 0) {
+        // We are in child process
+        if (execvp(args[0], args) == -1) {
+            printf("Didn't run correctly\n");
+            exit(1);
+        }
+    } else if (pid < 0) {
+        // Error forking
+        printf("Fork error");
+    } else {
+        waitpid(pid, NULL, WNOHANG);
+        printf("[%d]    %d\n", job_index - 1, pid);
+    }
+
+    return pid;
+}
+
+char *check_status(pid_t p_id) {
+    char id[100];
+    sprintf(id, "%d", p_id);
+    char out[15];
+    
+    char path[100] = "/proc/"; 
+    strcat(path, id);
+    strcat(path, "/status");
+    
+    int lineNumber = 3;
+    FILE *file = fopen(path, "r");
+    int count = 0;
+    if (file != NULL) {
+        char line[100];
+        while(fgets(line, sizeof line, file) != NULL) {
+            if (count == 2) {
+                int index1, index2;
+                for (int i = 0; i < strlen(line); i++) {
+                    if (line[i] == '(') {
+                        index1 = i;
+                    }
+                    if (line[i] == ')') {
+                        index2 = i;
+                    }
+                }
+
+                memcpy(out, &line[index1+1], index2-index1);
+                out[index2-index1-1] = '\0';
+                return strdup(out);
+            } else {
+                count++;
+            }
+        }
+        fclose(file);
+    } else {
+        return NULL;
+    }
+
 }
 
 int main(int argc, char **argv) {
@@ -239,6 +286,9 @@ int main(int argc, char **argv) {
     int hist_index = 0;
     char **hist = malloc(100 * sizeof(char*)); 
 
+    bool background;
+    pid_t pid;
+
     // Get current directory
     char cwd[PATH_MAX];
     getcwd(cwd, sizeof(cwd));
@@ -248,7 +298,7 @@ int main(int argc, char **argv) {
 
     // Main loop
     while (RUNNING) {
-        
+        background = false;
         print_prompt();
 
         line = get_input();
@@ -256,62 +306,107 @@ int main(int argc, char **argv) {
         hist[hist_index] = line;
         hist_index++;
 
+        // check for pipes and ampersand
         for (int i = 0; line[i] != '\0'; i++) {
             if (line[i] == '|' && line[i-1] != '|' && line[i+1] != '|') {
                 num_pipes++;
             }
+
+            if (line[i] == '&' && line[i-1] != '&' && line[i+1] != '&') {
+                background = true;
+            }
         }
 
-        if (num_pipes) {
-            // piping
-            execute_pipe(init_pipe_cmd(line));
+        if (background) {
 
-
-            num_pipes = 0;
-
-        } else {
-            args = parse_input(line);
-
-            if (!strcmp(args[0], "cd")) {
-                status = cd_command(args, cwd);
-
-            } else if (!strcmp(args[0], "exit")) {
-                break;
-
-            } else if (!strcmp(args[0], "help")) {
-                help_command();
-
-            } else if (!strcmp(args[0], "history") || !strcmp(args[0], "h")) {
-                if (history_handler(hist, hist_index, args)) {
-                    char *hist_line;
-                    char **hist_args;
-
-                    hist_line = hist[atoi(args[1])-1];
-                    hist_args = parse_input(hist_line);
-
-                    if (!strcmp(hist_args[0], "cd")) {
-                        status = cd_command(hist_args, cwd);
-
-                    } else if (!strcmp(hist_args[0], "exit")) {
-                        exit(0);
-
-                    } else if (!strcmp(hist_args[0], "help")) {
-                        help_command();
-
-                    } else {
-                        status = execute_standard(hist_args);
-                    }
-
-                }
-
+            if (num_pipes) {
+                //piping
+                printf("background with piping\n");
             } else {
-                status  = execute_standard(args);
+                // Run normal command in the background
+                args = parse_input(line);
+
+                if (!strcmp(args[0], "cd")) {
+                    status = cd_command(args, cwd);
+
+                } else if (!strcmp(args[0], "exit")) {
+                    break;
+
+                } else if (!strcmp(args[0], "help")) {
+                    help_command();
+
+                } else if (!strcmp(args[0], "history") || !strcmp(args[0], "h")) {
+                    //history
+                } else {
+                    // standard command
+                    pid = execute_background(args, line);
+                }
             }
 
-            free(args);
+        } else { // Not background
+            if (num_pipes) {
+                // piping
+                execute_pipe(init_pipe_cmd(line));
+
+                num_pipes = 0;
+
+            } else {
+                args = parse_input(line);
+
+                if (!strcmp(args[0], "cd")) {
+                    status = cd_command(args, cwd);
+
+                } else if (!strcmp(args[0], "exit")) {
+                    break;
+
+                } else if (!strcmp(args[0], "help")) {
+                    help_command();
+
+                } else if (!strcmp(args[0], "jobs")) {
+                    int j = 1;
+                    while(jobs[j].status != NULL) {
+                        printf("[%d] <%s> %s\n", jobs[j].id, jobs[j].status, jobs[j].cmd_line);
+                        j++;
+                    }
+
+                } else if (!strcmp(args[0], "history") || !strcmp(args[0], "h")) {
+                    if (history_handler(hist, hist_index, args)) {
+                        char *hist_line;
+                        char **hist_args;
+
+                        hist_line = hist[atoi(args[1])-1];
+                        hist_args = parse_input(hist_line);
+
+                        if (!strcmp(hist_args[0], "cd")) {
+                            status = cd_command(hist_args, cwd);
+
+                        } else if (!strcmp(hist_args[0], "exit")) {
+                            exit(0);
+
+                        } else if (!strcmp(hist_args[0], "help")) {
+                            help_command();
+
+                        } else {
+                            status = execute_standard(hist_args);
+                        }
+
+                    }
+
+                } else {
+                    status  = execute_standard(args);
+                }
+
+                free(args);
+            }
         }
 
-                
+        int j = 1;
+        
+        while (jobs[j].id > 0) {
+            jobs[j].status = check_status(jobs[j].id);
+            j++;
+        }
+             
     }
 
     return EXIT_SUCCESS;
