@@ -21,6 +21,7 @@ struct Job {
 
 struct Job jobs[100];
 int job_index = 1;
+int job_tracker = 0;
 
 void print_prompt() {
     printf("> ");
@@ -298,6 +299,17 @@ int main(int argc, char **argv) {
 
     // Main loop
     while (RUNNING) {
+
+        int k = 1;
+        while(jobs[k].id != 0) {
+            if (waitpid(jobs[k].id, NULL, WNOHANG) > 0) {
+                jobs[k].status = "Done";
+                printf("[%d] <%s> %s\n", jobs[k].id, jobs[k].status, jobs[k].cmd_line);
+                job_tracker++;
+            }
+            k++;
+        }
+
         background = false;
         print_prompt();
 
@@ -405,6 +417,18 @@ int main(int argc, char **argv) {
         while (jobs[j].id > 0) {
             jobs[j].status = check_status(jobs[j].id);
             j++;
+        }
+
+        if (job_tracker == job_index - 1) {
+            int l = 1;
+            while(l < 100) {
+                jobs[l].id = 0;
+                jobs[l].number = 0;
+                jobs[l].status = NULL;
+                jobs[l].cmd_line = NULL;
+                l++;
+            }
+            job_index = 1;
         }
              
     }
