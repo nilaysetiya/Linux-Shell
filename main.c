@@ -28,7 +28,7 @@ int job_index = 1;
 int job_tracker = 0;
 
 void print_prompt() {
-    printf("> ");
+    printf("ash> ");
 }
 
 char *get_input() {
@@ -36,7 +36,9 @@ char *get_input() {
     char *line = NULL;
     size_t buff_size = 0;
 
-    getline (&line, &buff_size, stdin);
+    if (getline (&line, &buff_size, stdin) == -1) {
+        return NULL;
+    }
 
     // Replace new line character with null terminator
     if (line[strlen(line)-1] == '\n') {
@@ -97,7 +99,7 @@ int cd_command(char **args, char *cwd) {
     } else {
         // Change dir to what user specifies
         if (chdir(args[1]) < 0) {
-            fprintf(stderr, "cd: %s: No such file or directory\n", args[1]);
+            perror(args[1]);
         }
     }
     return 1;
@@ -118,7 +120,7 @@ int history_handler(char **hist, int max_index, char **args) {
         // print out history
         int min_index = 0;
         if (max_index > 9) {
-            min_index = max_index - 9;
+            min_index = max_index - 10;
         }
 
         for (int i = min_index; i < max_index; i++) {
@@ -235,7 +237,7 @@ int execute_standard(char **args, char *line) {
     if (pid == 0) {
         // We are in child process
         if (execvp(args[0], args) == -1) {
-            printf("Didn't run correctly\n");
+            fprintf(stderr, "Error running, please check your command\n");
             exit(1);
         }
     } else if (pid < 0) {
@@ -334,6 +336,12 @@ void sighandler(int sig_num) {
 
 int main(int argc, char **argv) {
 
+    bool fromFile = false;
+
+    if (!isatty(STDIN_FILENO)) {
+        fromFile = true;
+    }
+
     bool RUNNING = true;
     char *line;
     char **args;
@@ -372,8 +380,14 @@ int main(int argc, char **argv) {
         print_prompt();
 
         line = get_input();
-        if (*line == '\0') {
-            continue;
+
+        if (!line) {
+            RUNNING = false;
+            exit(0);
+        }
+
+        if (fromFile) {
+            printf("%s\n", line);
         }
 
         hist[hist_index] = line;
@@ -472,6 +486,7 @@ int main(int argc, char **argv) {
                 } else if (!strcmp(args[0], "history") || !strcmp(args[0], "h")) {
                     if (history_handler(hist, hist_index, args)) {
                         char *hist_line = hist[atoi(args[1])-1];
+                        hist[hist_index-1] = hist_line;
                         char **hist_args = parse_input(hist_line);
                         int hist_pipes = 0;
                         bool hist_background = false;

@@ -1,0 +1,29 @@
+1) Each part of a pipeline command is started in a different process using fork followed by exec. Explain 
+why the same thing cannot be done by creating threads using pthread_create followed by exec.
+
+Answer: The purpose of fork() is to create a new process which becomes the child of the caller (parent process).
+Both the parent and the child process will then execute the next instructions after the fork() call. Two 
+identical copies of the computer's address space, code, and the stack are created. One is assignted to the 
+parent and the other is assigned to the child process. Whereas, pthread_create() creates a new thread in the
+program which has the same process as the caller. Memory between threads is shared so threads in the same 
+process can communicate using shared memory. Data is also shared between threads and a process can have multiple
+threads.
+
+A pipeline needs a chain of multiple communicating processes. Exec destroys all threads in the current process
+after being called. Exec replaces this with the child process that is being executed. 
+
+Therefore, if we call exec after pthread_create(), all the threads will be destroyed which is why we have to
+call fork() before we call exec.
+
+
+2) Explain how you deal with stopping restarting a process using CTRL-Z and fg. In particular mention which 
+signals get sent and handled. You can answer this even if you don't get it to work.
+
+Answer: Whenever the Control-Z keybind is pressed, a SIGTSTP signal is produced. We initialise 
+signal(SIGTSTP, sighandler) in the main function which looks for this signal and tells the process to ignore 
+this signal (which doesn't stop the main shell). After we catch this signal in the main function, the sighandler
+function is executed in which we reinitialse signal(SIGTSTP, sighandler) for the next SIGTSTP signal. We also
+call kill(pid, SIGSTOP) to stop the current foreground process. 
+
+When fg is entered, the command handler recognises the fg command and executes kill(pid, SIGCONT) to continue the 
+main foreground process.
